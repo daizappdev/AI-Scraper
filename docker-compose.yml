@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15
+    container_name: ai_scraper_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ai_scraper
+      POSTGRES_USER: ai_scraper
+      POSTGRES_PASSWORD: your_secure_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - ai_scraper_network
+
+  # Redis for job queue and caching
+  redis:
+    image: redis:7-alpine
+    container_name: ai_scraper_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - ai_scraper_network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai_scraper_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://ai_scraper:your_secure_password@db:5432/ai_scraper
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+    depends_on:
+      - db
+      - redis
+    networks:
+      - ai_scraper_network
+    volumes:
+      - ./generated_scripts:/app/generated_scripts
+      - ./logs:/app/logs
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ai_scraper_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - ai_scraper_network
+
+  # Script Execution Runner
+  scraper_runner:
+    build:
+      context: ./scraper-runner
+      dockerfile: Dockerfile
+    container_name: ai_scraper_runner
+    restart: unless-stopped
+    volumes:
+      - ./generated_scripts:/app/scripts
+      - ./outputs:/app/outputs
+    networks:
+      - ai_scraper_network
+
+volumes:
+  postgres_data:
+
+networks:
+  ai_scraper_network:
+    driver: bridge
